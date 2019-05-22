@@ -12,8 +12,22 @@ let s:encode1='utf-8'
 let s:new_window_hight=''
 let s:cnt=0
 let s:File = vital#filexplorer#new().import("System.File")
+function! s:getParentCwd()
+    let ret =substitute(s:getCwd(),'\v.\zs\/$','','g')
+    let ret = fnamemodify(ret, ':h')
+    return ret
+endfunction
+function! s:getCwdDirName()
+    let ret =substitute(s:getCwd(),'\v.\zs\/$','','g')
+    let ret = fnamemodify(ret, ':t')
+    return ret
+endfunction
 function! s:getCwd()
-    return exists('w:cwd') ? w:cwd : b:cwd
+    let ret = exists('w:cwd') ? w:cwd : b:cwd
+    if ret != '/'
+        let ret = ret . '/'
+    endif
+    return ret
 endfunction
 function! s:glob()
     if executable('cmd') && 0
@@ -46,7 +60,7 @@ function! s:open(path)
     if filereadable(path)
         exe 'e ' . path
     else
-        call filexplorer#getCwdFileList(s:getCwd() . '/' . substitute(getline('.'),'/','',''),getline('.'),'l',0)
+        call filexplorer#getCwdFileList(s:getCwd() . substitute(getline('.'),'/','',''),getline('.'),'l',0)
     endif
 endfunction
 let s:historydict={}
@@ -60,6 +74,7 @@ function! filexplorer#getCwdFileList(path,prekeyword,mode,initFlg,...)
     call add(matchadds,['Label','\v^".{-}\:\zs.*'])
     let path=substitute(a:path,'^\*','','')
     if isdirectory(path)
+        let fname=expand('%:p:t')
         if a:initFlg == 1 || !exists('w:bufname') || len(s:f.getwidlist(w:bufname)) > 1
             let s:cnt+=1
             let bufname='filexplorer' . s:cnt
@@ -77,11 +92,14 @@ function! filexplorer#getCwdFileList(path,prekeyword,mode,initFlg,...)
             let b:prebufnr=prebufnr
         endif
         let cwd =substitute(path,'\v[\\/]','/','g')
-        let cwd =substitute(cwd,'\v\/$','','g')
+        let cwd =substitute(cwd,'\v.\zs\/$','','g')
         let b:cwd=''
         let precwd=getcwd()
         let precwd =substitute(precwd,'\v[\\/]','/','g')
-        let precwd =substitute(precwd,'\v\/$','','g')
+        let precwd =substitute(precwd,'\v.\zs\/$','','g')
+        if cwd == precwd && a:mode == 'h'
+            return 0
+        endif
         let w:cwd =cwd
         let b:cwd =w:cwd
         if !exists('w:historydict')
@@ -95,7 +113,11 @@ function! filexplorer#getCwdFileList(path,prekeyword,mode,initFlg,...)
             let w:historydict[w:cwd]=a:prekeyword
             let s:historydict[w:cwd]=a:prekeyword
         endif
-        silent! exe 'lcd ' . w:cwd . '/'
+        if w:cwd == '/'
+            silent! exe 'lcd ' . w:cwd
+        else
+            silent! exe 'lcd ' . w:cwd . '/'
+        endif
         call s:f.noreadonly()
         call s:clearbuf()
         let [dirlist,filelist]=s:glob()
@@ -139,16 +161,18 @@ function! filexplorer#getCwdFileList(path,prekeyword,mode,initFlg,...)
         elseif has_key(w:historydict,w:cwd)
             let prekeyword=substitute(w:historydict[w:cwd],'\/','','g')
             silent! call search('\v' . prekeyword . '>')
+        elseif fname != ''
+            silent! call search('^\V' . fname . '\v>')
         endif
         norm 0
         nmap <buffer> <nowait> <silent> q :call <SID>quite()<CR>
         nmap <buffer> <nowait> <silent> \ :<C-u>call filexplorer#getCwdFileList(fnamemodify('/',':p') ,'','',0)<CR>
         nmap <buffer> <nowait> <silent> ~ :<C-u>call filexplorer#getCwdFileList(expand('~') ,'','',0)<CR>
-        nmap <buffer> <nowait> <silent> L :<C-u>call filexplorer#getCwdFileList(<SID>getCwd() . '/' . substitute(getline('.'),'/','',''),getline('.'),'l',0)<CR>
-        nmap <buffer> <nowait> <silent> - :<C-u>call filexplorer#getCwdFileList(fnamemodify(<SID>getCwd(), ':h'),fnamemodify(<SID>getCwd(), ':t'),'h',0)<CR>
-        nmap <buffer> <nowait> <silent> H :<C-u>call filexplorer#getCwdFileList(fnamemodify(<SID>getCwd(), ':h'),fnamemodify(<SID>getCwd(), ':t'),'h',0)<CR>
-        nmap <buffer> <nowait> <silent> <CR> :<C-u>call <SID>open(<SID>getCwd() . '/' . substitute(getline('.'),'^\*','',''))<CR>
-        nmap <buffer> <nowait> <silent> x :<C-u>call <SID>start(<SID>getCwd() . '/' . substitute(getline('.'),'^\*','',''))<CR>
+        nmap <buffer> <nowait> <silent> L :<C-u>call filexplorer#getCwdFileList(<SID>getCwd()  . substitute(getline('.'),'/','',''),getline('.'),'l',0)<CR>
+        nmap <buffer> <nowait> <silent> - :<C-u>call filexplorer#getCwdFileList(<SID>getParentCwd(),<SID>getCwdDirName(),'h',0)<CR>
+        nmap <buffer> <nowait> <silent> H :<C-u>call filexplorer#getCwdFileList(<SID>getParentCwd(),<SID>getCwdDirName(),'h',0)<CR>
+        nmap <buffer> <nowait> <silent> <CR> :<C-u>call <SID>open(<SID>getCwd()  . substitute(getline('.'),'^\*','',''))<CR>
+        nmap <buffer> <nowait> <silent> x :<C-u>call <SID>start(<SID>getCwd()  . substitute(getline('.'),'^\*','',''))<CR>
         nmap <buffer> <nowait> <silent> s :<C-u>call <SID>filesort()<CR>
         nmap <buffer> <nowait> <silent> <SPACE> :<C-u>call <SID>FileSelect(line('.'))<CR>
         vmap <buffer> <nowait> <silent> <SPACE> :call <SID>FilesSelect()<CR>
@@ -201,7 +225,7 @@ function! s:FileSelect(line,...)
     endif
     let opt=get(a:,1,{})
     if getline(line) !~ "^\*"
-        let s:selectdict[s:getCwd() . '/' . getline(line)] = 1
+        let s:selectdict[s:getCwd()  . getline(line)] = 1
         if get(opt,'empty',0) != 1
             call s:f.noreadonly()
             call s:setline(line,'*' . getline(line))
@@ -209,7 +233,7 @@ function! s:FileSelect(line,...)
         endif
     elseif getline(line) =~ "^\*"
         let prestr=substitute(getline(line),'^\*','','')
-        call remove(s:selectdict,s:getCwd() . '/' . prestr)
+        call remove(s:selectdict,s:getCwd()  . prestr)
         call s:f.noreadonly()
         call s:setline(line,prestr)
         call s:f.readonly()
@@ -331,11 +355,19 @@ function! s:filePaste()
         let tofile=w:cwd . '/' . fnamemodify(file, ':t')
         if substitute(tofile,'\V\','/','g') == substitute(file,'\V\','/','g')
             let cnt=1
-            let tofilebas = substitute(fnamemodify(tofile,':r'),'\v(.*)_-_[0-9]+$','\1','')
-            let tofile = tofilebas . '_-_' . cnt . '.' . fnamemodify(tofile,':e')
+            let tofilebas = substitute(fnamemodify(tofile,':r'),'\v(.*)_[0-9]+$','\1','')
+            if fnamemodify(tofile,':e') == ''
+                let tofile = tofilebas . '_' . cnt
+            else
+                let tofile = tofilebas . '_' . cnt . '.' . fnamemodify(tofile,':e')
+            endif
             while filereadable(tofile)
                 let cnt+=1
-                let tofile = tofilebas .'_-_' .  cnt . '.' .  fnamemodify(tofile,':e')
+                if fnamemodify(tofile,':e') == ''
+                    let tofile = tofilebas . '_' . cnt
+                else
+                    let tofile = tofilebas . '_' . cnt . '.' . fnamemodify(tofile,':e')
+                endif
             endwhile
         elseif stridx(substitute(tofile,'\V\','/','g'),substitute(file,'\V\','/','g')) == 0
             echom 'destination directory and source directory the area of wearing.'
@@ -354,13 +386,22 @@ function! s:filePaste()
         else
             let answer = 'Y'
         endif
+        let stat=1
         if answer == 'Y'
             if filereadable(file)
                 if s:copymode == 1
                     echom 'copy ' . shellescape(file) . ' to ' . tofile
-                    let stat=s:File.copy(shellescape(file),tofile)
+                    if has('unix')
+                        let stat=s:File.copy(file,tofile)
+                    else
+                        let stat=s:File.copy(shellescape(file),tofile)
+                    endif
                 elseif s:copymode == 2
-                    let stat=s:File.move(shellescape(file),w:cwd)
+                    if has('unix')
+                        let stat=s:File.move(file,w:cwd)
+                    else
+                        let stat=s:File.move(shellescape(file),w:cwd)
+                    endif
                 endif
             elseif isdirectory(file)
                 if !isdirectory(w:cwd . '/' . fnamemodify(file, ':h:t'))
@@ -376,6 +417,9 @@ function! s:filePaste()
                     endif
                 endif
             endif
+        endif
+        if stat == 0
+            echoerr 'error'
         endif
     endfor
     let save_cursor = getcurpos()
